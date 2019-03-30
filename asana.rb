@@ -3,7 +3,6 @@
 require "json"
 require "net/https"
 require "yaml"
-require "chronic"
 
 
 module Asana
@@ -21,8 +20,10 @@ module Asana
   def Asana.parse(args)
     if args.empty?
       tasks = Asana.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
+      show = false # TODO: set to true here, if you want to show everything
       tasks["data"].each do |task|
-        puts "#{task['id'].to_s.rjust(20)}) #{task['name']}"
+        show = true if task['name'].end_with?('now:')
+        puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
       end
       exit
     end
@@ -44,13 +45,14 @@ module Asana
         puts project['name']
       end
     when 'n'
-      Asana.post "tasks", {
+      result = Asana.post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
           "assignee" => 'me',
       }
       # add task to project
       # Asana.post "tasks/#{task['data']['id']}/addProject", { "project" => project.id }
+      puts "New task: https://app.asana.com/0/0/#{result['data']['id']}"
     else
       abort "Unknown command: #{cmd}"
     end
@@ -70,6 +72,7 @@ module Asana
 
   def Asana.http_request(type, url, data, query)
     uri = URI.parse "https://app.asana.com/api/1.0/#{url}"
+    puts "s) #{uri}"
     http = Net::HTTP.new uri.host, uri.port
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_PEER
