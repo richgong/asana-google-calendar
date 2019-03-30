@@ -43,7 +43,7 @@ module Asana
       projects["data"].each do |project|
         puts project['name']
       end
-    when 'a'
+    when 'n'
       Asana.post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
