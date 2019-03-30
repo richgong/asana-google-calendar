@@ -6,15 +6,21 @@ require "yaml"
 
 
 module Asana
+  CONFIG_FILE = File.expand_path '~/.asana-client'
   def Asana.init
     begin
-      @@config = YAML.load_file File.expand_path "~/.asana-client"
-      @user_id = @@config['user_id']
-      @workspace_id = @@config['workspace_id']
+      @config = YAML.load_file CONFIG_FILE
+      @config['projects'] ||= {}
+      @user_id = @config['user_id']
+      @workspace_id = @config['workspace_id']
       # puts "User: #{@user_id} Worskpace: #{@workspace_id}"
     rescue
       abort "Config error: ~/.asana-client.\nSee https://github.com/richgong/asana-ruby-script for instructions."
     end
+  end
+
+  def Asana.save
+    File.open(CONFIG_FILE, 'w') {|f| f.write @config.to_yaml }
   end
 
   def Asana.parse(args)
@@ -24,7 +30,8 @@ module Asana
       tasks["data"].each do |task|
         show = false if task['name'].end_with?('calendar:')
         show = true if task['name'].end_with?('now:')
-        puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
+        #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
+        puts "#{'  ' if !task['name'].end_with?(':')}#{task['name']}" if show
       end
       exit
     end
@@ -74,7 +81,7 @@ module Asana
 
   def Asana.http_request(type, url, data, query)
     uri = URI.parse "https://app.asana.com/api/1.0/#{url}"
-    puts "s) #{uri}"
+    # puts "s) #{uri}"
     http = Net::HTTP.new uri.host, uri.port
     http.use_ssl = true
     http.verify_mode = OpenSSL::SSL::VERIFY_PEER
@@ -82,7 +89,7 @@ module Asana
         "Content-Type" => "application/json"
     }
     req = type.new("#{uri.path}?#{uri.query}", header)
-    req.basic_auth @@config["api_key"], ''
+    req.basic_auth @config["api_key"], ''
     if req.respond_to?(:set_form_data) && !data.nil?
       req.set_form_data data
     end
