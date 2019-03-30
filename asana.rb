@@ -22,7 +22,7 @@ module Asana
     if args.empty?
       tasks = Asana.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
       tasks["data"].each do |task|
-        puts "#{task['id']}) #{task['name']}"
+        puts "#{task['id'].to_s.rjust(20)}) #{task['name']}"
       end
       exit
     end
