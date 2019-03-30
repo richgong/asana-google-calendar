@@ -11,9 +11,9 @@ There's a few existing Asana commandline clients. But they're one of the followi
 - Installed via `gem install`
 - Installed via `brew install`
 
-I find it easier to just make it a simple ruby script, and call it via an Bash alias.
+I find it easier to just make it a simple ruby script, and call it via a Bash alias.
 
-This way, I can edit the script. And not worry about having to publish a brew or gem package.
+This way, I can just edit the script -- and not worry about having to publish a brew or gem package.
 
 # To install
 
