@@ -7,7 +7,7 @@ require "yaml"
 
 module Asana
   CONFIG_FILE = File.expand_path '~/.asana-client'
-  def Asana.init
+  def self.init
     begin
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
@@ -19,13 +19,13 @@ module Asana
     end
   end
 
-  def Asana.save
+  def self.save
     File.open(CONFIG_FILE, 'w') {|f| f.write @config.to_yaml }
   end
 
-  def Asana.parse(args)
+  def self.parse(args)
     if args.empty?
-      tasks = Asana.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
+      tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
       show = true
       tasks["data"].each do |task|
         show = false if task['name'].end_with?('calendar:')
@@ -37,49 +37,72 @@ module Asana
     end
 
     cmd = args.shift
+    tags = args.select { |arg| arg.start_with? ':' }.map { |arg| arg[1..-1] }
+    args = args.select { |arg| !arg.start_with? ':' }
     value = args.join ' '
 
     case cmd
     when 'd'
       if value =~ /^(\d+)$/
-        Asana.put "tasks/#{$1}", { "completed" => true }
+        self.put "tasks/#{$1}", { "completed" => true }
         puts "Task completed!"
       else
         puts "Missing task ID"
       end
     when 'p'
-      projects = Asana.get "projects?workspace=#{@workspace_id}&archived=false"
+      projects = get_projects
       projects["data"].each do |project|
         puts project['name']
       end
     when 'n'
       exit if value.length == 0
-      result = Asana.post "tasks", {
+      new_task = self.post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
-          "assignee" => 'me',
+          "assignee" => 'me'
       }
       # add task to project
-      # Asana.post "tasks/#{task['data']['id']}/addProject", { "project" => project.id }
-      puts "New task: https://app.asana.com/0/0/#{result['data']['id']}"
+      tags.each do |tag|
+        project_id = ensure_project(tag)
+        self.post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
+      end
+      puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
     else
       abort "Unknown command: #{cmd}"
     end
   end
 
-  def Asana.get(url)
-    return Asana.http_request(Net::HTTP::Get, url, nil, nil)
+  def self.get_projects
+    self.get "projects?workspace=#{@workspace_id}&archived=false"
   end
 
-  def Asana.put(url, data, query = nil)
-    return Asana.http_request(Net::HTTP::Put, url, data, query)
+  def self.ensure_project(tag)
+    return @config['projects'][tag] if @config['projects'][tag]
+    puts "Looking up projects..."
+    projects = get_projects
+    projects["data"].each do |project|
+      if project['name'] == tag
+        @config['projects'][tag] = project['id']
+        self.save
+        return project['id']
+      end
+    end
+    nil
   end
 
-  def Asana.post(url, data, query = nil)
-    return Asana.http_request(Net::HTTP::Post, url, data, query)
+  def self.get(url)
+    return self.http_request(Net::HTTP::Get, url, nil, nil)
   end
 
-  def Asana.http_request(type, url, data, query)
+  def self.put(url, data, query = nil)
+    return self.http_request(Net::HTTP::Put, url, data, query)
+  end
+
+  def self.post(url, data, query = nil)
+    return self.http_request(Net::HTTP::Post, url, data, query)
+  end
+
+  def self.http_request(type, url, data, query)
     uri = URI.parse "https://app.asana.com/api/1.0/#{url}"
     # puts "s) #{uri}"
     http = Net::HTTP.new uri.host, uri.port
