@@ -20,8 +20,9 @@ module Asana
   def Asana.parse(args)
     if args.empty?
       tasks = Asana.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
-      show = false # TODO: set to true here, if you want to show everything
+      show = true
       tasks["data"].each do |task|
+        show = false if task['name'].end_with?('calendar:')
         show = true if task['name'].end_with?('now:')
         puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
       end
@@ -45,6 +46,7 @@ module Asana
         puts project['name']
       end
     when 'n'
+      exit if value.length == 0
       result = Asana.post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
