@@ -28,10 +28,10 @@ module Asana
       tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
       show = true
       tasks["data"].each do |task|
-        show = false if task['name'].end_with?('calendar:')
+        show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
         show = true if task['name'].end_with?('now:')
         #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
-        puts "#{'  ' if !task['name'].end_with?(':')}#{task['name']}" if show
+        puts "#{"\t" if !task['name'].end_with?(':')}#{task['name']}" if show
       end
       exit
     end
