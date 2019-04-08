@@ -1,29 +1,66 @@
 #!/usr/bin/env ruby
+#
+# work: https://console.developers.google.com/apis/credentials?authuser=0&project=quickstart-1554304957185
+# personal: https://console.developers.google.com/apis/credentials?authuser=0&project=quickstart-1554749225585
+# help: https://developers.google.com/calendar/quickstart/ruby
 
 require "json"
 require "net/https"
 require "yaml"
 require 'fileutils'
+require 'google/apis/calendar_v3'
+require 'googleauth'
+require 'googleauth/stores/file_token_store'
+require 'date'
+require 'fileutils'
 
 
-module AsanaCalendar
+module Main
   CONFIG_DIR = File.expand_path '~/asana-google-calendar/config'
   CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
+  CALENDAR_CREDENTIALS_FILE = File.join CONFIG_DIR, 'calendar_credentials.json'
+  CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'
+  CALENDAR_SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY
+  CALENDAR_AUTH_URL = 'urn:ietf:wg:oauth:2.0:oob'.freeze
   def self.init
+    @calendar = nil
     begin
-      FileUtils.mkdir_p CONFIG_DIR
+      # FileUtils.mkdir_p CONFIG_DIR
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
-      # puts "User: #{@user_id} Worskpace: #{@workspace_id}"
     rescue
       abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-ruby-script for instructions."
     end
   end
 
+  def self.ensure_calendar
+    return @calendar if !@calendar.nil?
+    client_id = Google::Auth::ClientId.from_file(CALENDAR_CREDENTIALS_FILE)
+    token_store = Google::Auth::Stores::FileTokenStore.new(file: CALENDAR_TOKEN_FILE)
+    authorizer = Google::Auth::UserAuthorizer.new(client_id, CALENDAR_SCOPE, token_store)
+    user_id = 'default'
+    credentials = authorizer.get_credentials(user_id)
+    if credentials.nil?
+      url = authorizer.get_authorization_url(base_url: CALENDAR_AUTH_URL)
+      puts "Open this URL and enter the resulting authorization code:\n#{url}"
+      code = gets
+      credentials = authorizer.get_and_store_credentials_from_code(
+          user_id: user_id, code: code, base_url: OOB_URI
+      )
+    end
+    @calendar = Google::Apis::CalendarV3::CalendarService.new
+    @calendar.authorization = credentials
+    @calendar
+  end
+
   def self.save
     File.open(CONFIG_FILE, 'w') {|f| f.write @config.to_yaml }
+  end
+
+  def self.zero_time t
+    DateTime.new(t.year, t.month, t.day, 0, 0, 0, t.zone)
   end
 
   def self.parse(args)
@@ -35,6 +72,24 @@ module AsanaCalendar
         show = true if task['name'].end_with?('now:')
         #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
         puts "#{"\t" if !task['name'].end_with?(':')}#{task['name']}" if show
+      end
+      ensure_calendar
+      now = DateTime.now
+      today = zero_time now
+      tomorrow = zero_time (now + 1)
+      response = @calendar.list_events('primary', # calendar id
+                                       max_results: 10,
+                                       single_events: true,
+                                       order_by: 'startTime',
+                                       time_min: today.rfc3339,
+                                       time_max: tomorrow.rfc3339)
+      puts "calendar:"
+      # Time.at(total_seconds).utc.strftime("%H:%M:%S")
+      if !response.items.empty?
+        response.items.each do |event|
+          start = event.start.date || event.start.date_time
+          puts "\t#{start.strftime('%H:%M')} #{event.summary}"
+        end
       end
       exit
     end
@@ -126,6 +181,6 @@ end
 
 
 if __FILE__ == $0
-  AsanaCalendar.init
-  AsanaCalendar.parse ARGV
+  Main.init
+  Main.parse ARGV
 end
