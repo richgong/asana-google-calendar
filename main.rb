@@ -7,7 +7,7 @@ require 'fileutils'
 
 
 module AsanaCalendar
-  CONFIG_DIR = File.expand_path '~/asana-calendar-script'
+  CONFIG_DIR = File.expand_path '~/asana-google-calendar/config'
   CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
   def self.init
     begin
