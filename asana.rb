@@ -26,7 +26,7 @@ module Asana
   def self.parse(args)
     if args.empty?
       tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
-      show = true
+      show = false
       tasks["data"].each do |task|
         show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
         show = true if task['name'].end_with?('now:')
