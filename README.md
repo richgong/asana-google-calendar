@@ -1,8 +1,8 @@
-# asana-ruby-script
+# asana-calendar-script
 
-A simple Ruby script for calling Asana from the command-line.
+A simple Ruby script for calling Asana and Google Calendar from the command-line.
 
-Inspired by this: [asana-client](https://github.com/tmacwill/asana-client) -- but dramatically simplified (and fewer features).
+Inspired by this: [asana-client](https://github.com/tmacwill/asana-client) -- but dramatically simplified, and also added Google calendar integration.
 
 # Why?
 
@@ -31,7 +31,7 @@ Then figure out what your `user_id` and `workspace_id` are:
 - [https://app.asana.com/api/1.0/users](https://app.asana.com/api/1.0/users)
 - [https://app.asana.com/api/1.0/workspaces](https://app.asana.com/api/1.0/workspaces)
 
-Then create a file at `~/.asana-client`, like this:
+Then create a file at `~/asana-calendar-script/config/config.yaml`, like this:
 
 	api_key: 0/111111
 	workspace_id: 1111111
@@ -41,7 +41,7 @@ Then, clone this repo.
 
 Then, make an alias in your `.bash_profile` to call the script in this repo. I have something like this in my `.bash_profile`:
 
-	alias asana="~/code/asana-ruby-script/asana.rb"
+	alias asana="~/asana-calendar-script/main.rb"
 
 # Usage
 

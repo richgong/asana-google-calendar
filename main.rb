@@ -3,19 +3,22 @@
 require "json"
 require "net/https"
 require "yaml"
+require 'fileutils'
 
 
-module Asana
-  CONFIG_FILE = File.expand_path '~/.asana-client'
+module AsanaCalendar
+  CONFIG_DIR = File.expand_path '~/asana-calendar-script'
+  CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
   def self.init
     begin
+      FileUtils.mkdir_p CONFIG_DIR
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
       # puts "User: #{@user_id} Worskpace: #{@workspace_id}"
     rescue
-      abort "Config error: ~/.asana-client.\nSee https://github.com/richgong/asana-ruby-script for instructions."
+      abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-ruby-script for instructions."
     end
   end
 
@@ -123,6 +126,6 @@ end
 
 
 if __FILE__ == $0
-  Asana.init
-  Asana.parse ARGV
+  AsanaCalendar.init
+  AsanaCalendar.parse ARGV
 end
