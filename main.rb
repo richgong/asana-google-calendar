@@ -84,12 +84,21 @@ module Main
                                        time_min: today.rfc3339,
                                        time_max: tomorrow.rfc3339)
       puts "calendar:"
-      # Time.at(total_seconds).utc.strftime("%H:%M:%S")
+      next_event = nil
       if !response.items.empty?
         response.items.each do |event|
+          is_next = false
           start = event.start.date || event.start.date_time
-          puts "\t#{start.strftime('%H:%M')} #{event.summary}"
+          if next_event.nil? and start >= now
+            next_event = event
+            is_next = true
+          end
+          puts "\t#{start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
         end
+      end
+      if !next_event.nil?
+        delta = ((next_event.start.date || next_event.start.date_time).to_time.to_i - now.to_time.to_i)
+        puts "next: #{Time.at(delta).utc.strftime("%H:%M:%S")}"
       end
       exit
     end
