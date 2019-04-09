@@ -25,6 +25,7 @@ module Main
   CALENDAR_AUTH_URL = 'urn:ietf:wg:oauth:2.0:oob'.freeze
   TAB  = '  - '
   TAB2 = '>>> '
+  TAB3 = '    '
   def self.init
     @calendar = nil
     begin
@@ -72,8 +73,8 @@ module Main
     seconds = delta % 60
     minutes = (delta / 60) % 60
     hours = delta / (60 * 60)
-    return format("%d:%02d:%02d", hours, minutes, seconds) if show_secs
-    format("%d:%02d", hours, minutes)
+    return "%d:%02d:%02d" % [hours, minutes, seconds] if show_secs
+    "%d:%02d" % [hours, minutes]
   end
 
   def self.event_time t
@@ -84,13 +85,19 @@ module Main
   def self.print_event event, event_start, event_end, is_next, is_details=false
     now = DateTime.now
     is_now = event_start < now && now < event_end
-    puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{format_timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary} #{"-- #{event.location.gsub("\n", " ")}" if (event.location and is_next)}"
+    puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{format_timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
+    puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location and is_next)
     if is_details
       # puts JSON.pretty_generate(event.to_h)
-      puts "  Calendar: #{event.html_link}"
-      puts "  Hangout: #{event.hangout_link}"
+      puts "#{TAB3}Calendar: #{event.html_link}"
+      puts "#{TAB3}Hangout: #{event.hangout_link}"
+      if event.attendees
+        event.attendees.each do |p|
+          puts "#{TAB3}#{"% 11s" % p.response_status} #{p.display_name || p.email} #{'*' if p.organizer}" if !(p.self || p.resource)
+        end
+      end
       desc = Nokogiri::HTML(event.description.gsub(/<[^>]+>/, "\n")).text.squeeze("\n\n")
-      puts "\n#{desc}"
+      puts "\n>>>\n#{desc}\n<<<"
     end
   end
 
@@ -116,8 +123,10 @@ module Main
     next_bound = nil
     last_event = nil
     events.each do |event|
-      rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
-      next if !rsvp
+      if event.attendees
+        rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
+        next if !rsvp
+      end
       is_next = false
       event_start = event_time(event.start)
       event_end = event_time(event.end)
@@ -125,7 +134,7 @@ module Main
         if event_start >= now
           next_bound = event_start
           is_next = true
-        elsif event_end >= now
+        elsif event_end >= now + 10.0 / (24 * 60)
           next_bound = event_end
           is_next = true
         end
