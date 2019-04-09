@@ -28,8 +28,10 @@ module Main
       # FileUtils.mkdir_p CONFIG_DIR
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
+      @emails = @config['emails']
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
+      puts "EMAILS: #{@emails}"
     rescue
       abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-ruby-script for instructions."
     end
@@ -87,6 +89,8 @@ module Main
       next_event = nil
       if !response.items.empty?
         response.items.each do |event|
+          rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
+          next if !rsvp
           is_next = false
           start = event.start.date || event.start.date_time
           if next_event.nil? and start >= now
