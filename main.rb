@@ -13,6 +13,7 @@ require 'googleauth'
 require 'googleauth/stores/file_token_store'
 require 'date'
 require 'fileutils'
+require 'nokogiri'
 
 
 module Main
@@ -22,7 +23,8 @@ module Main
   CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'
   CALENDAR_SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY
   CALENDAR_AUTH_URL = 'urn:ietf:wg:oauth:2.0:oob'.freeze
-  TAB = '  - '
+  TAB  = '  - '
+  TAB2 = '>>> '
   def self.init
     @calendar = nil
     begin
@@ -65,8 +67,36 @@ module Main
     DateTime.new(t.year, t.month, t.day, 0, 0, 0, t.zone)
   end
 
-  def self.print_calendar start_date=nil
-    start_date ||= DateTime.now
+  def self.format_timedelta a, b, show_secs=false
+    delta = (b.to_time.to_i - a.to_time.to_i)
+    seconds = delta % 60
+    minutes = (delta / 60) % 60
+    hours = delta / (60 * 60)
+    return format("%d:%02d:%02d", hours, minutes, seconds) if show_secs
+    format("%d:%02d", hours, minutes)
+  end
+
+  def self.event_time t
+    return t.date || t.date_time
+  end
+
+
+  def self.print_event event, event_start, event_end, is_next, is_details=false
+    now = DateTime.now
+    is_now = event_start < now && now < event_end
+    puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{format_timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary} #{"-- #{event.location.gsub("\n", " ")}" if (event.location and is_next)}"
+    if is_details
+      # puts JSON.pretty_generate(event.to_h)
+      puts "  Calendar: #{event.html_link}"
+      puts "  Hangout: #{event.hangout_link}"
+      desc = Nokogiri::HTML(event.description.gsub(/<[^>]+>/, "\n")).text.squeeze("\n\n")
+      puts "\n#{desc}"
+    end
+  end
+
+  def self.print_calendar start_date=nil, show_details=false
+    now = DateTime.now
+    start_date ||= now
     today = zero_time start_date
     tomorrow = zero_time (start_date + 1)
     events = @emails.reduce([]) do |events, email|
@@ -79,26 +109,42 @@ module Main
       events + response.items
     end.
         uniq { |event| event.id }.
-        sort_by { |event| event.start.date || event.start.date_time  }
-    puts "\ncalendar:"
-    next_event = nil
+        sort_by { |event| event_time(event.start)  }
+    if !show_details
+      puts "\ncalendar:"
+    end
+    next_bound = nil
+    last_event = nil
     events.each do |event|
       rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
       next if !rsvp
       is_next = false
-      event_start = event.start.date || event.start.date_time
-      if next_event.nil? and event_start >= DateTime.now
-        next_event = event
-        is_next = true
+      event_start = event_time(event.start)
+      event_end = event_time(event.end)
+      if next_bound.nil?
+        if event_start >= now
+          next_bound = event_start
+          is_next = true
+        elsif event_end >= now
+          next_bound = event_end
+          is_next = true
+        end
       end
-      puts "#{TAB}#{event_start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
+      if last_event and event_time(last_event.end) < event_start
+        last_event_end = event_time(last_event.end)
+        is_now = last_event_end < now && now < event_start
+        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{format_timedelta(last_event_end, event_start)} #{"* " if is_now}" if !show_details
+      end
+      if show_details
+        print_event(event, event_start, event_end, is_next, true) if is_next
+      else
+        print_event(event, event_start, event_end, is_next)
+      end
+      last_event = event
     end
-    if !next_event.nil?
-      delta = ((next_event.start.date || next_event.start.date_time).to_time.to_i - DateTime.now.to_time.to_i)
-      seconds = delta % 60
-      minutes = (delta / 60) % 60
-      hours = delta / (60 * 60)
-      puts "next: #{format("%02d:%02d:%02d", hours, minutes, seconds)}"
+    if !next_bound.nil?
+
+      puts "\nnext: #{format_timedelta(now, next_bound)}"
     end
   end
 
@@ -120,7 +166,6 @@ module Main
     tags = args.select { |arg| arg.start_with? ':' }.map { |arg| arg[1..-1] }
     args = args.select { |arg| !arg.start_with? ':' }
     value = args.join ' '
-
     case cmd
     when 'd'
       if value =~ /^(\d+)$/
@@ -132,6 +177,8 @@ module Main
     when /^t([0-9]+)/
       print_calendar DateTime.now + $1.to_i
     when 'c'
+      print_calendar(nil, true)
+    when 'cl'
       ensure_calendar.list_calendar_lists().items.each do |cal|
         puts "calendar: #{cal.to_h}"
       end
