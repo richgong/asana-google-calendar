@@ -22,6 +22,7 @@ module Main
   CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'
   CALENDAR_SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY
   CALENDAR_AUTH_URL = 'urn:ietf:wg:oauth:2.0:oob'.freeze
+  TAB = '  - '
   def self.init
     @calendar = nil
     begin
@@ -79,7 +80,7 @@ module Main
     end.
         uniq { |event| event.id }.
         sort_by { |event| event.start.date || event.start.date_time  }
-    puts "calendar:"
+    puts "\ncalendar:"
     next_event = nil
     events.each do |event|
       rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
@@ -90,7 +91,7 @@ module Main
         next_event = event
         is_next = true
       end
-      puts "\t#{event_start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
+      puts "#{TAB}#{event_start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
     end
     if !next_event.nil?
       delta = ((next_event.start.date || next_event.start.date_time).to_time.to_i - DateTime.now.to_time.to_i)
@@ -109,7 +110,7 @@ module Main
         show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
         show = true if task['name'].end_with?('now:')
         #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
-        puts "#{"\t" if !task['name'].end_with?(':')}#{task['name']}" if show
+        puts "#{TAB if !task['name'].end_with?(':')}#{task['name']}" if show
       end
       print_calendar
       exit
