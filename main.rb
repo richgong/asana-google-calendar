@@ -31,7 +31,6 @@ module Main
       @emails = @config['emails']
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
-      puts "EMAILS: #{@emails}"
     rescue
       abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-ruby-script for instructions."
     end
@@ -65,6 +64,43 @@ module Main
     DateTime.new(t.year, t.month, t.day, 0, 0, 0, t.zone)
   end
 
+  def self.print_calendar start_date=nil
+    start_date ||= DateTime.now
+    today = zero_time start_date
+    tomorrow = zero_time (start_date + 1)
+    events = @emails.reduce([]) do |events, email|
+      response = ensure_calendar.list_events(email, # calendar id
+                                  max_results: 10,
+                                  single_events: true,
+                                  order_by: 'startTime',
+                                  time_min: today.rfc3339,
+                                  time_max: tomorrow.rfc3339)
+      events + response.items
+    end.
+        uniq { |event| event.id }.
+        sort_by { |event| event.start.date || event.start.date_time  }
+    puts "calendar:"
+    next_event = nil
+    events.each do |event|
+      rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
+      next if !rsvp
+      is_next = false
+      event_start = event.start.date || event.start.date_time
+      if next_event.nil? and event_start >= DateTime.now
+        next_event = event
+        is_next = true
+      end
+      puts "\t#{event_start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
+    end
+    if !next_event.nil?
+      delta = ((next_event.start.date || next_event.start.date_time).to_time.to_i - DateTime.now.to_time.to_i)
+      seconds = delta % 60
+      minutes = (delta / 60) % 60
+      hours = delta / (60 * 60)
+      puts "next: #{format("%02d:%02d:%02d", hours, minutes, seconds)}"
+    end
+  end
+
   def self.parse(args)
     if args.empty?
       tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
@@ -75,35 +111,7 @@ module Main
         #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
         puts "#{"\t" if !task['name'].end_with?(':')}#{task['name']}" if show
       end
-      ensure_calendar
-      now = DateTime.now
-      today = zero_time now
-      tomorrow = zero_time (now + 1)
-      response = @calendar.list_events('primary', # calendar id
-                                       max_results: 10,
-                                       single_events: true,
-                                       order_by: 'startTime',
-                                       time_min: today.rfc3339,
-                                       time_max: tomorrow.rfc3339)
-      puts "calendar:"
-      next_event = nil
-      if !response.items.empty?
-        response.items.each do |event|
-          rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
-          next if !rsvp
-          is_next = false
-          start = event.start.date || event.start.date_time
-          if next_event.nil? and start >= now
-            next_event = event
-            is_next = true
-          end
-          puts "\t#{start.strftime('%H:%M')} #{"* " if is_next}#{event.summary} #{"-- #{event.location}" if event.location}"
-        end
-      end
-      if !next_event.nil?
-        delta = ((next_event.start.date || next_event.start.date_time).to_time.to_i - now.to_time.to_i)
-        puts "next: #{Time.at(delta).utc.strftime("%H:%M:%S")}"
-      end
+      print_calendar
       exit
     end
 
@@ -119,6 +127,12 @@ module Main
         puts "Task completed!"
       else
         puts "Missing task ID"
+      end
+    when /^t([0-9]+)/
+      print_calendar DateTime.now + $1.to_i
+    when 'c'
+      ensure_calendar.list_calendar_lists().items.each do |cal|
+        puts "calendar: #{cal.to_h}"
       end
     when 'p'
       projects = get_projects
@@ -152,13 +166,10 @@ module Main
     puts "Looking up projects..."
     projects = get_projects
     projects["data"].each do |project|
-      if project['name'] == tag
-        @config['projects'][tag] = project['id']
-        self.save
-        return project['id']
-      end
+      @config['projects'][project['name']] = project['id']
     end
-    nil
+    self.save
+    return @config['projects'][tag]
   end
 
   def self.get(url)

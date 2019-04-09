@@ -38,11 +38,14 @@ Then figure out what your `user_id` and `workspace_id` are:
 - [https://app.asana.com/api/1.0/users](https://app.asana.com/api/1.0/users)
 - [https://app.asana.com/api/1.0/workspaces](https://app.asana.com/api/1.0/workspaces)
 
-Then create a file at `~/asana-google-calendar/config/config.yaml`, like this:
+Then create a file at `~/asana-google-calendar/config/config.yaml` in the following format:
 
 	api_key: 0/111111
 	workspace_id: 1111111
 	user_id: 1111111
+    emails:
+      - my.email@example.com
+      - my.other.email@example.com
 
 Then get your Google Calendar credentials. Go [here](https://developers.google.com/calendar/quickstart/ruby),
 click "ENABLE THE GOOGLE CALENDAR API", and save the file `credentials.json` to
