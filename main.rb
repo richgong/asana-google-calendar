@@ -14,11 +14,13 @@ require 'googleauth/stores/file_token_store'
 require 'date'
 require 'fileutils'
 require 'nokogiri'
+require 'sqlite3'
 
-
-module Main
+class Main
   CONFIG_DIR = File.expand_path '~/asana-google-calendar/config'
   CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
+  DB_DIR = File.expand_path '~/Dropbox/Apps/asana-google-calendar'
+  DB_FILE = File.join DB_DIR, 'sqlite.db'
   CALENDAR_CREDENTIALS_FILE = File.join CONFIG_DIR, 'calendar_credentials.json'
   CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'
   CALENDAR_SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY
@@ -26,10 +28,10 @@ module Main
   TAB  = '  - '
   TAB2 = '>>> '
   TAB3 = '    '
-  def self.init
+
+  def initialize
     @calendar = nil
     begin
-      # FileUtils.mkdir_p CONFIG_DIR
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
       @emails = @config['emails']
@@ -40,7 +42,7 @@ module Main
     end
   end
 
-  def self.ensure_calendar
+  def calendar
     return @calendar if !@calendar.nil?
     client_id = Google::Auth::ClientId.from_file(CALENDAR_CREDENTIALS_FILE)
     token_store = Google::Auth::Stores::FileTokenStore.new(file: CALENDAR_TOKEN_FILE)
@@ -50,7 +52,7 @@ module Main
     if credentials.nil?
       url = authorizer.get_authorization_url(base_url: CALENDAR_AUTH_URL)
       puts "Open this URL and enter the resulting authorization code:\n#{url}"
-      code = gets
+      code = STDIN.gets
       credentials = authorizer.get_and_store_credentials_from_code(
           user_id: user_id, code: code, base_url: OOB_URI
       )
@@ -60,16 +62,20 @@ module Main
     @calendar
   end
 
-  def self.save
+  def db
+    @db ||= SQLite3::Database.new DB_FILE, {results_as_hash: true}
+  end
+
+  def save
     File.open(CONFIG_FILE, 'w') {|f| f.write @config.to_yaml }
   end
 
-  def self.zero_time t
+  def zero_time t
     DateTime.new(t.year, t.month, t.day, 0, 0, 0, t.zone)
   end
 
-  def self.format_timedelta a, b, show_secs=false
-    delta = (b.to_time.to_i - a.to_time.to_i)
+  def duration delta, show_secs=false
+    delta = delta.to_i
     seconds = delta % 60
     minutes = (delta / 60) % 60
     hours = delta / (60 * 60)
@@ -77,11 +83,16 @@ module Main
     "%d:%02d" % [hours, minutes]
   end
 
-  def self.event_time t
+  def timedelta a, b=nil, show_secs=false
+    b ||= DateTime.now
+    duration (b.to_time.to_i - a.to_time.to_i), show_secs
+  end
+
+  def event_time t
     return t.date || t.date_time
   end
 
-  def self.symbolize_response_status status
+  def symbolize_response_status status
     case status
     when 'accepted'
       return '_'
@@ -96,20 +107,20 @@ module Main
     end
   end
 
-  def self.clean_name p
+  def clean_name p
     return "me" if p.self || @emails.include?(p.email)
     return p.display_name if p.display_name
     return p.email.sub(/@.*$/, '')
   end
 
-  def self.print_attendee p
+  def print_attendee p
     puts "#{TAB3}#{symbolize_response_status(p.response_status)} #{'* ' if p.organizer}#{clean_name(p)}" if !(p.resource)
   end
 
-  def self.print_event event, event_start, event_end, is_next, is_details=false
+  def print_event event, event_start, event_end, is_next, is_details=false
     now = DateTime.now
     is_now = event_start < now && now < event_end
-    puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{format_timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
+    puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
     puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location && is_next)
 
     if is_details
@@ -126,18 +137,18 @@ module Main
     end
   end
 
-  def self.print_calendar date_delta, show_details
+  def print_calendar date_delta, show_details
     now = DateTime.now
     start_date = now + date_delta
     today = zero_time start_date
     tomorrow = zero_time (start_date + 1)
     events = @emails.reduce([]) do |events, email|
-      response = ensure_calendar.list_events(email, # calendar id
-                                  max_results: 10,
-                                  single_events: true,
-                                  order_by: 'startTime',
-                                  time_min: today.rfc3339,
-                                  time_max: tomorrow.rfc3339)
+      response = calendar.list_events(email, # calendar id
+                                           max_results: 10,
+                                           single_events: true,
+                                           order_by: 'startTime',
+                                           time_min: today.rfc3339,
+                                           time_max: tomorrow.rfc3339)
       events + response.items
     end.
         uniq { |event| event.id }.
@@ -166,19 +177,19 @@ module Main
       if last_event && event_time(last_event.end) < event_start
         last_event_end = event_time(last_event.end)
         is_now = last_event_end < now && now < event_start
-        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{format_timedelta(last_event_end, event_start)} #{"* " if is_now}" if show_details != :details_next_only
+        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{timedelta(last_event_end, event_start)} #{"* " if is_now}" if show_details != :details_next_only
       end
       is_details = show_details == :details_all || (is_next && show_details == :details_next_only)
       print_event(event, event_start, event_end, is_next, is_details) if is_details || show_details != :details_next_only
       last_event = event
     end
     if !next_bound.nil?
-      puts "\nnext: #{format_timedelta(now, next_bound)}"
+      puts "\nnext: #{timedelta(now, next_bound)}"
     end
   end
 
-  def self.print_tasks
-    tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
+  def print_tasks
+    tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
     show = false
     tasks["data"].each do |task|
       show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
@@ -188,12 +199,12 @@ module Main
     end
   end
 
-  def self.print_tasks_and_calendar date_delta=0, show_details=:details_none
+  def print_tasks_and_calendar date_delta=0, show_details=:details_none
     print_tasks
     print_calendar date_delta, show_details
   end
 
-  def self.parse(args)
+  def run(args)
     if args.empty?
       print_tasks_and_calendar
       exit
@@ -206,7 +217,7 @@ module Main
     case cmd
     when 'd'
       if value =~ /^(\d+)$/
-        self.put "tasks/#{$1}", { "completed" => true }
+        http_put "tasks/#{$1}", { "completed" => true }
         puts "Task completed!"
       else
         puts "Missing task ID"
@@ -218,7 +229,7 @@ module Main
     when /a([\-\+0-9]*)/
       print_tasks_and_calendar($1.to_i, :details_all)
     when 'cl'
-      ensure_calendar.list_calendar_lists().items.each do |cal|
+      calendar.list_calendar_lists().items.each do |cal|
         puts "calendar: #{cal.to_h}"
       end
     when 'p'
@@ -228,7 +239,7 @@ module Main
       end
     when 'n'
       exit if value.length == 0
-      new_task = self.post "tasks", {
+      new_task = post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
           "assignee" => 'me'
@@ -236,42 +247,78 @@ module Main
       # add task to project
       tags.each do |tag|
         project_id = ensure_project(tag)
-        self.post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
+        http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
       end
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
+    when 's' # race
+      if value.empty?
+        db.execute("select * from sprints;") do |s|
+          started_at = DateTime.parse(s['started_at'])
+          puts "#{started_at.strftime('%H:%M')} #{duration(s['estimate'], true)} \\ #{s['actual'] ? duration(s['actual'], true) : "#{timedelta(started_at, DateTime.now, true)} *"} #{s['goal']} #{"# #{s['note']}" if s['note']} "
+        end
+        exit
+      end
+      print "sprint: #{value}
+Minutes estimate? "
+      estimate = STDIN.gets.chomp
+      estimate = (estimate.empty? ? 5.0 : estimate.to_f) * 60.0
+      db.execute("INSERT INTO sprints (started_at, goal, estimate) VALUES (?, ?, ?)", [DateTime.now.to_s, value, estimate])
+    when 'sd'
+      s = db.execute("SELECT * FROM sprints ORDER BY started_at DESC LIMIT 1;")[0]
+      started_at = DateTime.parse(s['started_at'])
+      puts "finished: #{s['goal']}"
+      actual = DateTime.now.to_time.to_f - started_at.to_time.to_f
+      puts "estimate: #{duration(s['estimate'], true)}"
+      puts "actual:   #{duration(actual, true)}"
+      print "note? "
+      note = STDIN.gets.chomp
+      db.execute("UPDATE sprints SET actual = ?, note = ? WHERE started_at = ?;", actual, note, started_at.to_s) do |row|
+        puts row
+      end
+    when 'si' # init Race DB
+      FileUtils.mkdir_p DB_DIR
+      db.execute <<-SQL
+create table sprints (
+  started_at TEXT,
+  goal TEXT,
+  note TEXT,
+  estimate REAL,
+  actual REAL
+);
+      SQL
     else
       abort "Unknown command: #{cmd}"
     end
   end
 
-  def self.get_projects
-    self.get "projects?workspace=#{@workspace_id}&archived=false"
+  def get_projects
+    http_get "projects?workspace=#{@workspace_id}&archived=false"
   end
 
-  def self.ensure_project(tag)
+  def ensure_project(tag)
     return @config['projects'][tag] if @config['projects'][tag]
     puts "Looking up projects..."
     projects = get_projects
     projects["data"].each do |project|
       @config['projects'][project['name']] = project['id']
     end
-    self.save
+    save
     return @config['projects'][tag]
   end
 
-  def self.get(url)
-    return self.http_request(Net::HTTP::Get, url, nil, nil)
+  def http_get(url)
+    return http_request(Net::HTTP::Get, url, nil, nil)
   end
 
-  def self.put(url, data, query = nil)
-    return self.http_request(Net::HTTP::Put, url, data, query)
+  def http_put(url, data, query = nil)
+    return http_request(Net::HTTP::Put, url, data, query)
   end
 
-  def self.post(url, data, query = nil)
-    return self.http_request(Net::HTTP::Post, url, data, query)
+  def http_post(url, data, query = nil)
+    return http_request(Net::HTTP::Post, url, data, query)
   end
 
-  def self.http_request(type, url, data, query)
+  def http_request(type, url, data, query)
     uri = URI.parse "https://app.asana.com/api/1.0/#{url}"
     # puts "s) #{uri}"
     http = Net::HTTP.new uri.host, uri.port
@@ -292,6 +339,6 @@ end
 
 
 if __FILE__ == $0
-  Main.init
-  Main.parse ARGV
+  m = Main.new
+  m.run ARGV
 end
