@@ -36,7 +36,7 @@ module Main
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
     rescue
-      abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-ruby-script for instructions."
+      abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-google-calendar for instructions."
     end
   end
 
@@ -81,29 +81,54 @@ module Main
     return t.date || t.date_time
   end
 
+  def self.symbolize_response_status status
+    case status
+    when 'accepted'
+      return '_'
+    when 'needsAction'
+      return '?'
+    when 'tentative'
+      return '~'
+    when 'declined'
+      return '^'
+    else
+      status
+    end
+  end
+
+  def self.clean_name p
+    return "me" if p.self || @emails.include?(p.email)
+    return p.display_name if p.display_name
+    return p.email.sub(/@.*$/, '')
+  end
+
+  def self.print_attendee p
+    puts "#{TAB3}#{symbolize_response_status(p.response_status)} #{'* ' if p.organizer}#{clean_name(p)}" if !(p.resource)
+  end
 
   def self.print_event event, event_start, event_end, is_next, is_details=false
     now = DateTime.now
     is_now = event_start < now && now < event_end
     puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{format_timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
-    puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location and is_next)
+    puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location && is_next)
+
     if is_details
       # puts JSON.pretty_generate(event.to_h)
-      puts "#{TAB3}Calendar: #{event.html_link}"
-      puts "#{TAB3}Hangout: #{event.hangout_link}"
+      puts "#{TAB3}#{event.html_link}"
+      # puts "#{TAB3}Hangout: #{event.hangout_link}"
       if event.attendees
         event.attendees.each do |p|
-          puts "#{TAB3}#{"% 11s" % p.response_status} #{p.display_name || p.email} #{'*' if p.organizer}" if !(p.self || p.resource)
+          print_attendee p
         end
       end
-      desc = Nokogiri::HTML(event.description.gsub(/<[^>]+>/, "\n")).text.squeeze("\n\n")
-      puts "\n>>>\n#{desc}\n<<<"
+      desc = Nokogiri::HTML(event.description.gsub(/<li>/i, "\n  - ").gsub(/<br>/i, "\n").gsub(/<[^>]+>/, "\n")).text.squeeze("\n") if event.description
+      puts "\n>>>\n#{desc}\n<<<" if desc
     end
   end
 
-  def self.print_calendar start_date=nil, show_details=false
+  def self.print_calendar date_delta, show_details
     now = DateTime.now
-    start_date ||= now
+    start_date = now + date_delta
     today = zero_time start_date
     tomorrow = zero_time (start_date + 1)
     events = @emails.reduce([]) do |events, email|
@@ -117,9 +142,8 @@ module Main
     end.
         uniq { |event| event.id }.
         sort_by { |event| event_time(event.start)  }
-    if !show_details
-      puts "\ncalendar:"
-    end
+
+    puts "\ncalendar: #{"%+d" % date_delta if date_delta != 0}"
     next_bound = nil
     last_event = nil
     events.each do |event|
@@ -139,35 +163,39 @@ module Main
           is_next = true
         end
       end
-      if last_event and event_time(last_event.end) < event_start
+      if last_event && event_time(last_event.end) < event_start
         last_event_end = event_time(last_event.end)
         is_now = last_event_end < now && now < event_start
-        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{format_timedelta(last_event_end, event_start)} #{"* " if is_now}" if !show_details
+        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{format_timedelta(last_event_end, event_start)} #{"* " if is_now}" if show_details != :details_next_only
       end
-      if show_details
-        print_event(event, event_start, event_end, is_next, true) if is_next
-      else
-        print_event(event, event_start, event_end, is_next)
-      end
+      is_details = show_details == :details_all || (is_next && show_details == :details_next_only)
+      print_event(event, event_start, event_end, is_next, is_details) if is_details || show_details != :details_next_only
       last_event = event
     end
     if !next_bound.nil?
-
       puts "\nnext: #{format_timedelta(now, next_bound)}"
     end
   end
 
+  def self.print_tasks
+    tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
+    show = false
+    tasks["data"].each do |task|
+      show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
+      show = true if task['name'].end_with?('now:')
+      #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
+      puts "#{TAB if !task['name'].end_with?(':')}#{task['name']}" if show
+    end
+  end
+
+  def self.print_tasks_and_calendar date_delta=0, show_details=:details_none
+    print_tasks
+    print_calendar date_delta, show_details
+  end
+
   def self.parse(args)
     if args.empty?
-      tasks = self.get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
-      show = false
-      tasks["data"].each do |task|
-        show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
-        show = true if task['name'].end_with?('now:')
-        #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
-        puts "#{TAB if !task['name'].end_with?(':')}#{task['name']}" if show
-      end
-      print_calendar
+      print_tasks_and_calendar
       exit
     end
 
@@ -183,10 +211,12 @@ module Main
       else
         puts "Missing task ID"
       end
-    when /^t([0-9]+)/
-      print_calendar DateTime.now + $1.to_i
-    when 'c'
-      print_calendar(nil, true)
+    when /^([\-\+0-9]+)/
+      print_tasks_and_calendar($1.to_i)
+    when /c([\-\+0-9]*)/
+      print_calendar($1.to_i, :details_next_only)
+    when /a([\-\+0-9]*)/
+      print_tasks_and_calendar($1.to_i, :details_all)
     when 'cl'
       ensure_calendar.list_calendar_lists().items.each do |cal|
         puts "calendar: #{cal.to_h}"
