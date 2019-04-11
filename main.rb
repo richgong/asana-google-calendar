@@ -158,11 +158,11 @@ class Main
     tomorrow = change_time (start_date + 1)
     events = @emails.reduce([]) do |events, email|
       response = calendar.list_events(email, # calendar id
-                                           max_results: 10,
-                                           single_events: true,
-                                           order_by: 'startTime',
-                                           time_min: today.rfc3339,
-                                           time_max: tomorrow.rfc3339)
+                                      max_results: 10,
+                                      single_events: true,
+                                      order_by: 'startTime',
+                                      time_min: today.rfc3339,
+                                      time_max: tomorrow.rfc3339)
       events + response.items
     end.
         uniq { |event| event.id }.
@@ -228,11 +228,15 @@ class Main
     print_calendar date_delta, show_details
   end
 
+  def print_sprint s
+    started_at = DateTime.parse(s['started_at'])
+    puts "#{TAB}#{started_at.strftime('%H:%M')} #{s['actual'] ? "#{duration(s['actual'], true)} /" : "#{timedelta(started_at, DateTime.now, true)} *"} #{duration(s['estimate'], true)} #{s['goal']} #{"# #{s['note']}" if s['note'] && !s['note'].empty?} "
+  end
+
   def print_sprints
     puts "sprints:"
     db.execute("select * from sprints ORDER BY started_at;") do |s|
-      started_at = DateTime.parse(s['started_at'])
-      puts "#{TAB}#{started_at.strftime('%H:%M')} #{s['actual'] ? "#{duration(s['actual'], true)} /" : "#{timedelta(started_at, DateTime.now, true)} *"} #{duration(s['estimate'], true)} #{s['goal']} #{"# #{s['note']}" if s['note'] && !s['note'].empty?} "
+      print_sprint s
     end
   end
 
@@ -280,15 +284,31 @@ class Main
       end
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
     when 's'
+      s = db.execute("SELECT * FROM sprints ORDER BY started_at DESC LIMIT 1;")[0]
+      started_at = nil
+      if !s.nil? && s['actual'].nil?
+        started_at = s['started_at']
+        puts "!!! Sprint still running:"
+        print_sprint s
+      end
       if value.empty?
         print "New sprint: "
         value = STDIN.gets.chomp
       end
-      exit if value.empty?
+      if value.empty?
+        if started_at
+          value = s['goal']
+        else
+          exit
+        end
+      end
       print "Minutes estimate? "
       estimate = STDIN.gets.chomp
       estimate = (estimate.empty? ? 5.0 : estimate.to_f) * 60.0
-      db.execute("INSERT INTO sprints (started_at, goal, estimate) VALUES (?, ?, ?)", [DateTime.now.to_s, value, estimate])
+      started_at = DateTime.now.to_s if started_at.nil?
+      db.execute("INSERT INTO sprints (started_at, goal, estimate) VALUES (?, ?, ?)
+ON CONFLICT(started_at) DO UPDATE SET goal = ?, estimate = ?;
+", [started_at, value, estimate, value, estimate])
       print_sprints
     when 'd'
       # if value =~ /^(\d+)$/
