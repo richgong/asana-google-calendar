@@ -31,6 +31,8 @@ class Main
 
   def initialize
     @calendar = nil
+    @free_total = 0
+    @free_spent = 0
     begin
       @config = YAML.load_file CONFIG_FILE
       @config['projects'] ||= {}
@@ -70,8 +72,8 @@ class Main
     File.open(CONFIG_FILE, 'w') {|f| f.write @config.to_yaml }
   end
 
-  def zero_time t
-    DateTime.new(t.year, t.month, t.day, 0, 0, 0, t.zone)
+  def change_time t, h=0, m=0, s=0
+    DateTime.new(t.year, t.month, t.day, h, m, s, t.zone)
   end
 
   def duration delta, show_secs=false
@@ -137,11 +139,23 @@ class Main
     end
   end
 
+  def print_free now, last_event_end, next_event_start, show_details
+    is_now = last_event_end < now && now < next_event_start
+    puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{timedelta(last_event_end, next_event_start)} #{"* " if is_now}" if show_details != :details_next_only
+    amount = next_event_start.to_time.to_f - last_event_end.to_time.to_f
+    @free_total += amount
+    if is_now
+      @free_spent += now.to_time.to_f - last_event_end.to_time.to_f
+    elsif now >= next_event_start
+      @free_spent += amount
+    end
+  end
+
   def print_calendar date_delta, show_details
     now = DateTime.now
     start_date = now + date_delta
-    today = zero_time start_date
-    tomorrow = zero_time (start_date + 1)
+    today = change_time start_date
+    tomorrow = change_time (start_date + 1)
     events = @emails.reduce([]) do |events, email|
       response = calendar.list_events(email, # calendar id
                                            max_results: 10,
@@ -157,6 +171,7 @@ class Main
     puts "\ncalendar: #{"%+d" % date_delta if date_delta != 0}"
     next_bound = nil
     last_event = nil
+    is_first = true
     events.each do |event|
       if event.attendees
         rsvp = event.attendees.select { |rsvp| @emails.include?(rsvp.email) }.any? {|rsvp| ['tentative', 'needsAction', 'accepted'].include?(rsvp.response_status)}
@@ -165,6 +180,10 @@ class Main
       is_next = false
       event_start = event_time(event.start)
       event_end = event_time(event.end)
+      if is_first and event_start.hour > 10
+        start_of_day = change_time(start_date, 10)
+        print_free now, start_of_day, event_start, show_details
+      end
       if next_bound.nil?
         if event_start >= now
           next_bound = event_start
@@ -175,22 +194,26 @@ class Main
         end
       end
       if last_event && event_time(last_event.end) < event_start
-        last_event_end = event_time(last_event.end)
-        is_now = last_event_end < now && now < event_start
-        puts "#{TAB}#{last_event_end.strftime('%H:%M')} #{timedelta(last_event_end, event_start)} #{"* " if is_now}" if show_details != :details_next_only
+        print_free now, event_time(last_event.end), event_start, show_details
       end
       is_details = show_details == :details_all || (is_next && show_details == :details_next_only)
       print_event(event, event_start, event_end, is_next, is_details) if is_details || show_details != :details_next_only
       last_event = event
+      is_first = false
+    end
+    end_of_day = change_time start_date, 18
+    if last_event && event_time(last_event.end) < end_of_day
+      print_free now, event_time(last_event.end), end_of_day, show_details
     end
     if !next_bound.nil?
-      puts "\nnext: #{timedelta(now, next_bound)}"
+      puts "\nnext: #{timedelta(now, next_bound, true)} / #{duration(@free_spent)} / #{duration(@free_total)}"
     end
   end
 
   def print_tasks
     tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
     show = false
+    puts
     tasks["data"].each do |task|
       show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
       show = true if task['name'].end_with?('now:')
@@ -200,8 +223,17 @@ class Main
   end
 
   def print_tasks_and_calendar date_delta=0, show_details=:details_none
+    print_sprints
     print_tasks
     print_calendar date_delta, show_details
+  end
+
+  def print_sprints
+    puts "sprints:"
+    db.execute("select * from sprints ORDER BY started_at;") do |s|
+      started_at = DateTime.parse(s['started_at'])
+      puts "#{TAB}#{started_at.strftime('%H:%M')} #{s['actual'] ? "#{duration(s['actual'], true)} /" : "#{timedelta(started_at, DateTime.now, true)} *"} #{duration(s['estimate'], true)} #{s['goal']} #{"# #{s['note']}" if s['note'] && !s['note'].empty?} "
+    end
   end
 
   def run(args)
@@ -211,17 +243,8 @@ class Main
     end
 
     cmd = args.shift
-    tags = args.select { |arg| arg.start_with? ':' }.map { |arg| arg[1..-1] }
-    args = args.select { |arg| !arg.start_with? ':' }
     value = args.join ' '
     case cmd
-    when 'd'
-      if value =~ /^(\d+)$/
-        http_put "tasks/#{$1}", { "completed" => true }
-        puts "Task completed!"
-      else
-        puts "Missing task ID"
-      end
     when /^([\-\+0-9]+)/
       print_tasks_and_calendar($1.to_i)
     when /c([\-\+0-9]*)/
@@ -232,14 +255,20 @@ class Main
       calendar.list_calendar_lists().items.each do |cal|
         puts "calendar: #{cal.to_h}"
       end
-    when 'p'
+    when 'pr'
       projects = get_projects
       projects["data"].each do |project|
         puts project['name']
       end
     when 'n'
-      exit if value.length == 0
-      new_task = post "tasks", {
+      if value.empty?
+        print "New task: "
+        value = STDIN.gets.chomp
+      end
+      exit if value.empty?
+      tags = value.scan(/:([a-z]+)/).map { |x| x[0] }
+      value = value.gsub(/:[a-z]+/, '')
+      new_task = http_post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
           "assignee" => 'me'
@@ -250,20 +279,24 @@ class Main
         http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
       end
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
-    when 's' # race
+    when 's'
       if value.empty?
-        db.execute("select * from sprints;") do |s|
-          started_at = DateTime.parse(s['started_at'])
-          puts "#{started_at.strftime('%H:%M')} #{duration(s['estimate'], true)} \\ #{s['actual'] ? duration(s['actual'], true) : "#{timedelta(started_at, DateTime.now, true)} *"} #{s['goal']} #{"# #{s['note']}" if s['note']} "
-        end
-        exit
+        print "New sprint: "
+        value = STDIN.gets.chomp
       end
-      print "sprint: #{value}
-Minutes estimate? "
+      exit if value.empty?
+      print "Minutes estimate? "
       estimate = STDIN.gets.chomp
       estimate = (estimate.empty? ? 5.0 : estimate.to_f) * 60.0
       db.execute("INSERT INTO sprints (started_at, goal, estimate) VALUES (?, ?, ?)", [DateTime.now.to_s, value, estimate])
-    when 'sd'
+      print_sprints
+    when 'd'
+      # if value =~ /^(\d+)$/
+      #   http_put "tasks/#{$1}", { "completed" => true }
+      #   puts "Task completed!"
+      # else
+      #   puts "Missing task ID"
+      # end
       s = db.execute("SELECT * FROM sprints ORDER BY started_at DESC LIMIT 1;")[0]
       started_at = DateTime.parse(s['started_at'])
       puts "finished: #{s['goal']}"
@@ -278,14 +311,29 @@ Minutes estimate? "
     when 'si' # init Race DB
       FileUtils.mkdir_p DB_DIR
       db.execute <<-SQL
-create table sprints (
-  started_at TEXT,
-  goal TEXT,
-  note TEXT,
-  estimate REAL,
-  actual REAL
+CREATE TABLE sprints (
+  started_at TEXT PRIMARY KEY,
+  goal       TEXT,
+  note       TEXT,
+  estimate   REAL,
+  actual     REAL
 );
       SQL
+    when '-h'
+    when '--help'
+      puts "Usage: todo [COMMAND] [ARGS]
+
+Commands:
+  [none]            sprints, tasks, and calendar
+  +1 | -1           sprints, tasks, and calendar: +1 or -1 days ahead
+  c | c+1 | c-1     calendar event details (+1 or -1 days ahead)
+  a | a+1 | a-1     tasks, with calendar event details (+1 or -1 days ahead)
+  cl                list of calendars
+  pr                list of projects
+  n [task] [:tag]   new todo
+  p                 new sprint (pomodoro)
+  d                 complete a sprint
+"
     else
       abort "Unknown command: #{cmd}"
     end
