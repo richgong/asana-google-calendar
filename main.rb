@@ -323,6 +323,7 @@ class Main
       # else
       #   puts "Missing task ID"
       # end
+      db # require
       sprint = Sprint.order(started_at: :desc).first
       puts "finished: #{sprint.goal}"
       actual = DateTime.now.to_time.to_f - sprint.started_at_dt.to_time.to_f
@@ -330,9 +331,9 @@ class Main
       puts "actual:   #{duration(actual, true)}"
       print "note? "
       note = STDIN.gets.chomp
-      db.execute("UPDATE sprints SET actual = ?, note = ? WHERE started_at = ?;", actual, note, started_at.to_s) do |row|
-        puts row
-      end
+      sprint.note = note
+      sprint.actual = actual
+      sprint.save!
     when 'si' # init Sprint DB
       FileUtils.mkdir_p DB_DIR
       db.execute <<-SQL
