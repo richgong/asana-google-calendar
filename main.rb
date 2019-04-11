@@ -8,22 +8,16 @@ require "json"
 require "net/https"
 require "yaml"
 require 'fileutils'
-require 'google/apis/calendar_v3'
-require 'googleauth'
-require 'googleauth/stores/file_token_store'
 require 'date'
-require 'fileutils'
-require 'nokogiri'
-require 'sqlite3'
+
 
 class Main
   CONFIG_DIR = File.expand_path '~/asana-google-calendar/config'
   CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
   DB_DIR = File.expand_path '~/Dropbox/Apps/asana-google-calendar'
-  DB_FILE = File.join DB_DIR, 'sqlite.db'
+  DB_FILE = "sqlite3://%s" % File.join(DB_DIR, 'sqlite.db')
   CALENDAR_CREDENTIALS_FILE = File.join CONFIG_DIR, 'calendar_credentials.json'
   CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'
-  CALENDAR_SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY
   CALENDAR_AUTH_URL = 'urn:ietf:wg:oauth:2.0:oob'.freeze
   TAB  = '  - '
   TAB2 = '>>> '
@@ -31,6 +25,7 @@ class Main
 
   def initialize
     @calendar = nil
+    @db = nil
     @free_total = 0
     @free_spent = 0
     begin
@@ -45,10 +40,13 @@ class Main
   end
 
   def calendar
+    require 'google/apis/calendar_v3'
+    require 'googleauth'
+    require 'googleauth/stores/file_token_store'
     return @calendar if !@calendar.nil?
     client_id = Google::Auth::ClientId.from_file(CALENDAR_CREDENTIALS_FILE)
     token_store = Google::Auth::Stores::FileTokenStore.new(file: CALENDAR_TOKEN_FILE)
-    authorizer = Google::Auth::UserAuthorizer.new(client_id, CALENDAR_SCOPE, token_store)
+    authorizer = Google::Auth::UserAuthorizer.new(client_id, Google::Apis::CalendarV3::AUTH_CALENDAR_READONLY, token_store)
     user_id = 'default'
     credentials = authorizer.get_credentials(user_id)
     if credentials.nil?
@@ -65,7 +63,11 @@ class Main
   end
 
   def db
-    @db ||= SQLite3::Database.new DB_FILE, {results_as_hash: true}
+    require './sprint.rb'
+    return @db if !@db.nil?
+    @db = ActiveRecord::Base.establish_connection(DB_FILE)
+    # @db ||= SQLite3::Database.new DB_FILE, {results_as_hash: true}
+    @db = ActiveRecord::Base.connection
   end
 
   def save
@@ -134,6 +136,7 @@ class Main
           print_attendee p
         end
       end
+      require 'nokogiri'
       desc = Nokogiri::HTML(event.description.gsub(/<li>/i, "\n  - ").gsub(/<br>/i, "\n").gsub(/<[^>]+>/, "\n")).text.squeeze("\n") if event.description
       puts "\n>>>\n#{desc}\n<<<" if desc
     end
@@ -223,20 +226,21 @@ class Main
   end
 
   def print_tasks_and_calendar date_delta=0, show_details=:details_none
-    print_sprints
+    print_sprints date_delta
     print_tasks
     print_calendar date_delta, show_details
   end
 
-  def print_sprint s
-    started_at = DateTime.parse(s['started_at'])
-    puts "#{TAB}#{started_at.strftime('%H:%M')} #{s['actual'] ? "#{duration(s['actual'], true)} /" : "#{timedelta(started_at, DateTime.now, true)} *"} #{duration(s['estimate'], true)} #{s['goal']} #{"# #{s['note']}" if s['note'] && !s['note'].empty?} "
+  def print_sprint sprint
+    puts "#{TAB}#{sprint.started_at_dt.strftime('%H:%M')} #{sprint.actual ? "#{duration(sprint.actual, true)} /" : "#{timedelta(sprint.started_at_dt, DateTime.now, true)} *"} #{duration(sprint.estimate, true)} #{sprint.goal} #{"# #{sprint.note}" if sprint.note && !sprint.note.empty?} "
   end
 
-  def print_sprints
-    puts "sprints:"
-    db.execute("select * from sprints ORDER BY started_at;") do |s|
-      print_sprint s
+  def print_sprints date_delta=0
+    db # require
+    puts "sprints: #{"%+d" % date_delta if date_delta != 0}"
+    now = DateTime.now + date_delta
+    Sprint.where('started_at BETWEEN ? AND ?', change_time(now), change_time(now + 1)).each do |sprint|
+      print_sprint sprint
     end
   end
 
@@ -249,22 +253,22 @@ class Main
     cmd = args.shift
     value = args.join ' '
     case cmd
-    when /^([\-\+0-9]+)/
+    when /^([\-\+0-9]+)/ # print status +/- days
       print_tasks_and_calendar($1.to_i)
-    when /c([\-\+0-9]*)/
+    when /c([\-\+0-9]*)/ # show first calendar detail
       print_calendar($1.to_i, :details_next_only)
-    when /a([\-\+0-9]*)/
+    when /a([\-\+0-9]*)/ # show all details
       print_tasks_and_calendar($1.to_i, :details_all)
-    when 'cl'
+    when 'cl' # calendars
       calendar.list_calendar_lists().items.each do |cal|
         puts "calendar: #{cal.to_h}"
       end
-    when 'pr'
+    when 'pr' # projects
       projects = get_projects
       projects["data"].each do |project|
         puts project['name']
       end
-    when 'n'
+    when 'n' # new task
       if value.empty?
         print "New task: "
         value = STDIN.gets.chomp
@@ -283,21 +287,21 @@ class Main
         http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
       end
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
-    when 's'
-      s = db.execute("SELECT * FROM sprints ORDER BY started_at DESC LIMIT 1;")[0]
-      started_at = nil
-      if !s.nil? && s['actual'].nil?
-        started_at = s['started_at']
+    when 's' # new sprint
+      db # require
+      sprint = Sprint.order(started_at: :desc).first
+      sprint = nil if sprint.actual
+      if !sprint.nil?
         puts "!!! Sprint still running:"
-        print_sprint s
+        print_sprint sprint
       end
       if value.empty?
         print "New sprint: "
         value = STDIN.gets.chomp
       end
       if value.empty?
-        if started_at
-          value = s['goal']
+        if sprint
+          value = sprint.goal
         else
           exit
         end
@@ -305,30 +309,31 @@ class Main
       print "Minutes estimate? "
       estimate = STDIN.gets.chomp
       estimate = (estimate.empty? ? 5.0 : estimate.to_f) * 60.0
-      started_at = DateTime.now.to_s if started_at.nil?
-      db.execute("INSERT INTO sprints (started_at, goal, estimate) VALUES (?, ?, ?)
-ON CONFLICT(started_at) DO UPDATE SET goal = ?, estimate = ?;
-", [started_at, value, estimate, value, estimate])
+
+      sprint = Sprint.new(started_at: DateTime.now) if not sprint
+      sprint.goal = value
+      sprint.estimate = estimate
+      sprint.save!
+
       print_sprints
-    when 'd'
+    when 'd' # complete sprint
       # if value =~ /^(\d+)$/
       #   http_put "tasks/#{$1}", { "completed" => true }
       #   puts "Task completed!"
       # else
       #   puts "Missing task ID"
       # end
-      s = db.execute("SELECT * FROM sprints ORDER BY started_at DESC LIMIT 1;")[0]
-      started_at = DateTime.parse(s['started_at'])
-      puts "finished: #{s['goal']}"
-      actual = DateTime.now.to_time.to_f - started_at.to_time.to_f
-      puts "estimate: #{duration(s['estimate'], true)}"
+      sprint = Sprint.order(started_at: :desc).first
+      puts "finished: #{sprint.goal}"
+      actual = DateTime.now.to_time.to_f - sprint.started_at_dt.to_time.to_f
+      puts "estimate: #{duration(sprint.estimate, true)}"
       puts "actual:   #{duration(actual, true)}"
       print "note? "
       note = STDIN.gets.chomp
       db.execute("UPDATE sprints SET actual = ?, note = ? WHERE started_at = ?;", actual, note, started_at.to_s) do |row|
         puts row
       end
-    when 'si' # init Race DB
+    when 'si' # init Sprint DB
       FileUtils.mkdir_p DB_DIR
       db.execute <<-SQL
 CREATE TABLE sprints (
@@ -339,6 +344,10 @@ CREATE TABLE sprints (
   actual     REAL
 );
       SQL
+    when 'sh'
+      require 'pry'
+      db
+      binding.pry
     when '-h'
     when '--help'
       puts "Usage: todo [COMMAND] [ARGS]
