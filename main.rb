@@ -63,7 +63,7 @@ class Main
   end
 
   def db
-    require './sprint.rb'
+    require_relative './sprint.rb'
     return @db if !@db.nil?
     @db = ActiveRecord::Base.establish_connection(DB_FILE)
     # @db ||= SQLite3::Database.new DB_FILE, {results_as_hash: true}
@@ -205,12 +205,14 @@ class Main
       is_first = false
     end
     end_of_day = change_time start_date, 18
-    if last_event && event_time(last_event.end) < end_of_day
-      print_free now, event_time(last_event.end), end_of_day, show_details
+    if last_event
+      if event_time(last_event.end) < end_of_day
+        print_free now, event_time(last_event.end), end_of_day, show_details
+      end
+    else
+      print_free now, change_time(start_date, 10 ), end_of_day, show_details
     end
-    if !next_bound.nil?
-      puts "\nnext: #{timedelta(now, next_bound, true)} / #{duration(@free_spent)} / #{duration(@free_total)}"
-    end
+    puts "\ntime: #{next_bound.nil? ? 'none' : timedelta(now, next_bound, true)} / #{duration(@free_spent)} / #{duration(@free_total)}"
   end
 
   def print_tasks
