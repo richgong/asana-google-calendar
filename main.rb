@@ -212,7 +212,9 @@ class Main
     else
       print_free now, change_time(start_date, 10 ), end_of_day, show_details
     end
-    puts "\ntime: #{next_bound.nil? ? 'none' : timedelta(now, next_bound, true)} / #{duration(@free_spent)} / #{duration(@free_total)}"
+    puts
+    puts "next: #{timedelta(now, next_bound, true)}" if !next_bound.nil?
+    puts "free: #{duration(@free_spent)} / #{duration(@free_total)}"
   end
 
   def print_tasks
