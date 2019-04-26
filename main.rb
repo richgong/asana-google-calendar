@@ -224,6 +224,9 @@ class Main
     else
       print_free now, change_time(start_date, 10 ), end_of_day, show_details
     end
+    if next_bound.nil? and now < end_of_day
+        next_bound = end_of_day
+    end
     puts
     puts "next: #{timedelta(now, next_bound, true)}" if !next_bound.nil?
     puts "free: #{duration(@free_spent)} / #{duration(@free_total)}"
