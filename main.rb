@@ -92,8 +92,20 @@ class Main
     duration (b.to_time.to_i - a.to_time.to_i), show_secs
   end
 
-  def event_time t
-    return t.date || t.date_time
+  def event_time e
+    begin
+      if e.date
+        t = e.date
+        if t.is_a? String
+          t = Date.strptime(t).to_time.to_datetime # to_time converts to local timezone: https://stackoverflow.com/questions/32107775/whats-the-best-way-to-convert-a-date-to-a-datetime-in-the-current-timezone-in-r
+        end
+        return t
+      else
+        return e.date_time
+      end
+    rescue
+      puts "Parse failure: #{e.date} #{e.date_time}"
+    end
   end
 
   def symbolize_response_status status
@@ -130,7 +142,7 @@ class Main
     if is_details
       # puts JSON.pretty_generate(event.to_h)
       puts "#{TAB3}#{event.html_link}"
-      # puts "#{TAB3}Hangout: #{event.hangout_link}"
+      puts "#{TAB3}#{event.hangout_link}"
       if event.attendees
         event.attendees.each do |p|
           print_attendee p
