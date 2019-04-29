@@ -237,8 +237,8 @@ class Main
     show = false
     puts
     tasks["data"].each do |task|
-      show = false if ['calendar:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
-      show = true if task['name'].end_with?('now:')
+      show = false if ['calendar:'].any? { |x| task['name'].end_with?(x) }
+      show = true if ['now:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
       #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
       puts "#{TAB if !task['name'].end_with?(':')}#{task['name']}" if show
     end
@@ -294,16 +294,24 @@ class Main
       end
       exit if value.empty?
       tags = value.scan(/:([a-z]+)/).map { |x| x[0] }
-      value = value.gsub(/:[a-z]+/, '')
+      value = value.gsub(/:[a-z]+/, '').strip
       new_task = http_post "tasks", {
           "workspace" => @workspace_id,
           "name" => value,
-          "assignee" => 'me'
+          "assignee" => 'me',
+          "assignee_status" => (tags.include?('now') ? 'today' : 'inbox')
       }
       # add task to project
-      tags.each do |tag|
-        project_id = ensure_project(tag)
-        http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id } if project_id
+      tags = tags.select do |tag|
+        is_select = false
+        if !['now'].include?(tag)
+          project_id = ensure_project(tag)
+          if project_id
+            http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id }
+            is_select = true
+          end
+        end
+        is_select
       end
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
     when 's' # new sprint
