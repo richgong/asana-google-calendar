@@ -235,7 +235,8 @@ class Main
 
   def print_tasks
     tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
-    show = false
+    show = true
+    puts "feed:" if show
     tasks["data"].each do |task|
       show = false if ['calendar:'].any? { |x| task['name'].end_with?(x) }
       show = true if ['now:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
@@ -245,7 +246,7 @@ class Main
   end
 
   def print_tasks_and_calendar date_delta=0, show_details=:details_none, show_calendar_link: false
-    print_sprints date_delta
+    # print_sprints date_delta
     print_tasks
     print_calendar date_delta, show_details, show_calendar_link
   end
@@ -315,7 +316,6 @@ class Main
         end
         is_select
       end
-      puts "New task? #{new_task}"
       puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['gid']}"
     when 's' # new sprint
       db # require
