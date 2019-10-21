@@ -133,10 +133,11 @@ class Main
     puts "#{TAB3}#{symbolize_response_status(p.response_status)} #{'* ' if p.organizer}#{clean_name(p)}" if !(p.resource)
   end
 
-  def print_event event, event_start, event_end, is_next, is_details=false
+  def print_event event, event_start, event_end, is_next, is_details=false, show_calendar_link=false
     now = DateTime.now
     is_now = event_start < now && now < event_end
     puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
+    puts "#{TAB}     #{event.html_link}" if show_calendar_link
     puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location && is_next)
 
     if is_details
@@ -166,7 +167,7 @@ class Main
     end
   end
 
-  def print_calendar date_delta, show_details
+  def print_calendar date_delta, show_details, show_calendar_link=false
     now = DateTime.now
     start_date = now + date_delta
     today = change_time start_date
@@ -212,7 +213,7 @@ class Main
         print_free now, event_time(last_event.end), event_start, show_details
       end
       is_details = show_details == :details_all || (is_next && show_details == :details_next_only)
-      print_event(event, event_start, event_end, is_next, is_details) if is_details || show_details != :details_next_only
+      print_event(event, event_start, event_end, is_next, is_details, show_calendar_link) if is_details || show_details != :details_next_only
       last_event = event
       is_first = false
     end
@@ -235,19 +236,18 @@ class Main
   def print_tasks
     tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
     show = false
-    puts
     tasks["data"].each do |task|
       show = false if ['calendar:'].any? { |x| task['name'].end_with?(x) }
       show = true if ['now:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
       #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
-      puts "#{TAB if !task['name'].end_with?(':')}#{task['name']}" if show
+      puts "#{task['name'].end_with?(':') ? "\n" : TAB}#{task['name']}" if show
     end
   end
 
-  def print_tasks_and_calendar date_delta=0, show_details=:details_none
+  def print_tasks_and_calendar date_delta=0, show_details=:details_none, show_calendar_link: false
     print_sprints date_delta
     print_tasks
-    print_calendar date_delta, show_details
+    print_calendar date_delta, show_details, show_calendar_link
   end
 
   def print_sprint sprint
@@ -274,6 +274,8 @@ class Main
     case cmd
     when /^([\-\+0-9]+)/ # print status +/- days
       print_tasks_and_calendar($1.to_i)
+    when /l([\-\+0-9]*)/
+      print_tasks_and_calendar($1.to_i, show_calendar_link: true)
     when /c([\-\+0-9]*)/ # show first calendar detail
       print_calendar($1.to_i, :details_next_only)
     when /a([\-\+0-9]*)/ # show all details
