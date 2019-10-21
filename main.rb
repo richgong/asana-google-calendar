@@ -315,7 +315,8 @@ class Main
         end
         is_select
       end
-      puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['id']}"
+      puts "New task? #{new_task}"
+      puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['gid']}"
     when 's' # new sprint
       db # require
       sprint = Sprint.order(started_at: :desc).first
