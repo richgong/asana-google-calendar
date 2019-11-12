@@ -236,7 +236,7 @@ class Main
   def print_tasks
     tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
     show = true
-    puts "feed:" if show
+    puts "inbox2:" if show
     tasks["data"].each do |task|
       show = false if ['calendar:'].any? { |x| task['name'].end_with?(x) }
       show = true if ['now:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
