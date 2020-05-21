@@ -54,7 +54,7 @@ class Main
       puts "Open this URL and enter the resulting authorization code:\n#{url}"
       code = STDIN.gets
       credentials = authorizer.get_and_store_credentials_from_code(
-          user_id: user_id, code: code, base_url: OOB_URI
+          user_id: user_id, code: code, base_url: CALENDAR_AUTH_URL
       )
     end
     @calendar = Google::Apis::CalendarV3::CalendarService.new
