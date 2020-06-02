@@ -34,6 +34,7 @@ class Main
       @emails = @config['emails']
       @user_id = @config['user_id']
       @workspace_id = @config['workspace_id']
+      @user_task_list_id = @config['user_task_list_id']
     rescue
       abort "Config error: #{CONFIG_FILE}\nSee https://github.com/richgong/asana-google-calendar for instructions."
     end
@@ -217,7 +218,7 @@ class Main
       last_event = event
       is_first = false
     end
-    end_of_day = change_time start_date, 18
+    end_of_day = change_time(start_date, 17, 30)
     if last_event
       if event_time(last_event.end) < end_of_day
         print_free now, event_time(last_event.end), end_of_day, show_details
@@ -234,14 +235,18 @@ class Main
   end
 
   def print_tasks
-    tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now"
+    # for sections: opt_fields=name,memberships.(project|section).name
+    # tasks = http_get "tasks?workspace=#{@workspace_id}&assignee=me&completed_since=now&opt_fields=name"
+    tasks = http_get "user_task_lists/#{@user_task_list_id}/tasks?completed_since=now&opt_fields=name"
+    #puts JSON.pretty_generate(tasks)
     show = true
-    puts "inbox2:" if show
+    puts "feed:" if show
     tasks["data"].each do |task|
-      show = false if ['calendar:'].any? { |x| task['name'].end_with?(x) }
-      show = true if ['now:', 'inbox:'].any? { |x| task['name'].end_with?(x) }
+      show = false if ['calendar:', 'inbox:', 'maybe:'].any? { |x| task['name'] == x }
+      show = true if ['now:'].any? { |x| task['name'] == x }
       #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
       puts "#{task['name'].end_with?(':') ? "\n" : TAB}#{task['name']}" if show
+      #puts JSON.pretty_generate(task)
     end
   end
 
