@@ -242,9 +242,9 @@ class Main
     show = true
     puts "feed:" if show
     tasks["data"].each do |task|
-      show = false if ['calendar:', 'inbox:', 'maybe:'].any? { |x| task['name'] == x }
-      show = true if ['now:'].any? { |x| task['name'] == x }
-      #puts "#{task['id'].to_s.rjust(20)}) #{task['name']}" if show
+      show = false if ['calendar:', 'inbox:', 'night:', 'day:'].any? { |x| task['name'] == x } # default to false
+      show = true if [DateTime.now.hour >= 18 ? 'night:' : 'day:'].any? { |x| task['name'] == x }
+      #puts "#{task['gid'].to_s.rjust(20)}) #{task['name']}" if show
       puts "#{task['name'].end_with?(':') ? "\n" : TAB}#{task['name']}" if show
       #puts JSON.pretty_generate(task)
     end
@@ -303,25 +303,20 @@ class Main
       exit if value.empty?
       tags = value.scan(/:([a-z]+)/).map { |x| x[0] }
       value = value.gsub(/:[a-z]+/, '').strip
-      new_task = http_post "tasks", {
+      assign_now = tags.include?('now') || tags.length == 0
+      project_ids = tags.map { |tag| tag != 'now' ? ensure_project(tag) : nil }.select { |x| !x.nil? }
+      # puts http_post "tasks/#{new_task['data']['gid']}/addProject", { "project" => project_id, "insert_before" => "0" }
+      data = {
           "workspace" => @workspace_id,
           "name" => value,
           "assignee" => 'me',
-          "assignee_status" => (tags.include?('now') ? 'today' : 'inbox')
+          "assignee_status" => (assign_now ? 'inbox' : 'today'),  # inbox, today, etc. (assuming assigned)
       }
+      data["projects"] = project_ids if project_ids.length > 0
+      new_task = http_post"tasks", data
+      # puts new_task
       # add task to project
-      tags = tags.select do |tag|
-        is_select = false
-        if !['now'].include?(tag)
-          project_id = ensure_project(tag)
-          if project_id
-            http_post "tasks/#{new_task['data']['id']}/addProject", { "project" => project_id }
-            is_select = true
-          end
-        end
-        is_select
-      end
-      puts "New task #{tags}: https://app.asana.com/0/0/#{new_task['data']['gid']}"
+      puts "Task created [#{tags.join(', ')}]: https://app.asana.com/0/0/#{new_task['data']['gid']}"
     when 's' # new sprint
       db # require
       sprint = Sprint.order(started_at: :desc).first
@@ -412,8 +407,9 @@ Commands:
     return @config['projects'][tag] if @config['projects'][tag]
     puts "Looking up projects..."
     projects = get_projects
+    # puts JSON.pretty_generate(projects)
     projects["data"].each do |project|
-      @config['projects'][project['name']] = project['id']
+      @config['projects'][project['name']] = project['gid']
     end
     save
     return @config['projects'][tag]
