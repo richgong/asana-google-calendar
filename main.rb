@@ -140,11 +140,11 @@ class Main
     puts "#{is_details ? "\n#{TAB2}" : TAB}#{event_start.strftime('%H:%M')} #{timedelta(event_start, event_end)} #{"* " if is_now}#{event.summary}"
     puts "#{TAB}     #{event.html_link}" if show_calendar_link
     puts "#{TAB3}@ #{event.location.gsub("\n", " ")}" if (event.location && is_next)
-
     if is_details
       # puts JSON.pretty_generate(event.to_h)
-      puts "#{TAB3}#{event.html_link}"
-      puts "#{TAB3}#{event.hangout_link}"
+      puts "#{TAB3}details: #{event.html_link}"
+      # puts "#{TAB3}#{event.hangout_link}"
+      return
       if event.attendees
         event.attendees.each do |p|
           print_attendee p
