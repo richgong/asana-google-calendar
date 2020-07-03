@@ -143,6 +143,7 @@ class Main
     if is_details
       # puts JSON.pretty_generate(event.to_h)
       puts "#{TAB3}details: #{event.html_link}"
+      `open #{event.html_link}`
       # puts "#{TAB3}#{event.hangout_link}"
       return
       if event.attendees
