@@ -100,7 +100,7 @@ class Main
         if t.is_a? String
           t = Date.strptime(t).to_time.to_datetime # to_time converts to local timezone: https://stackoverflow.com/questions/32107775/whats-the-best-way-to-convert-a-date-to-a-datetime-in-the-current-timezone-in-r
         end
-        return t
+        return t.to_datetime
       else
         return e.date_time
       end
