@@ -1,4 +1,6 @@
-ruby '~> 2.5.5'
+source 'https://rubygems.org'
+
+ruby '~> 2.6.5'
 
 gem 'google-api-client'
 gem 'sqlite3'
