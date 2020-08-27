@@ -243,8 +243,8 @@ class Main
     show = true
     puts "feed:" if show
     tasks["data"].each do |task|
-      show = false if ['calendar:', 'inbox:', 'night:', 'day:'].any? { |x| task['name'] == x } # default to false
-      show = true if [DateTime.now.hour >= 18 ? 'night:' : 'day:'].any? { |x| task['name'] == x }
+      show = false if ['calendar:', 'inbox:', 'now:'].any? { |x| task['name'] == x } # default to false
+      show = true if ['now:'].any? { |x| task['name'] == x }
       #puts "#{task['gid'].to_s.rjust(20)}) #{task['name']}" if show
       puts "#{task['name'].end_with?(':') ? "\n" : TAB}#{task['name']}" if show
       #puts JSON.pretty_generate(task)
