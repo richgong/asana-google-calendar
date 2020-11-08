@@ -45,6 +45,7 @@ GEM
 
 PLATFORMS
   ruby
+  x64-mingw32
   x86_64-darwin-18
 
 DEPENDENCIES
@@ -52,7 +53,7 @@ DEPENDENCIES
   sqlite3
 
 RUBY VERSION
-   ruby 2.6.5p114
+   ruby 2.7.2p137
 
 BUNDLED WITH
    2.1.4
