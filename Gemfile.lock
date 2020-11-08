@@ -47,6 +47,7 @@ PLATFORMS
   ruby
   x64-mingw32
   x86_64-darwin-18
+  x86_64-darwin-19
 
 DEPENDENCIES
   google-api-client
