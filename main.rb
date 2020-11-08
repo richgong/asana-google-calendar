@@ -12,9 +12,9 @@ require 'date'
 
 
 class Main
-  CONFIG_DIR = File.expand_path '~/asana-google-calendar/config'
+  CONFIG_DIR = File.expand_path '~/c/asana-google-calendar/config'
   CONFIG_FILE = File.join CONFIG_DIR, 'config.yaml'
-  DB_DIR = File.expand_path '~/Dropbox/Apps/asana-google-calendar'
+  DB_DIR = File.expand_path '~/gd/Apps/asana-google-calendar'  # Google drive folder
   DB_FILE = "sqlite3://%s" % File.join(DB_DIR, 'sqlite.db')
   CALENDAR_CREDENTIALS_FILE = File.join CONFIG_DIR, 'calendar_credentials.json'
   CALENDAR_TOKEN_FILE = File.join CONFIG_DIR, 'calendar_token.yaml'

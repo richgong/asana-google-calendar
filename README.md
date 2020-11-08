@@ -38,7 +38,7 @@ Then figure out what your `user_id` and `workspace_id` are:
 - [https://app.asana.com/api/1.0/users](https://app.asana.com/api/1.0/users)
 - [https://app.asana.com/api/1.0/workspaces](https://app.asana.com/api/1.0/workspaces)
 
-Then create a file at `~/asana-google-calendar/config/config.yaml` in the following format:
+Then create a file at `~/c/asana-google-calendar/config/config.yaml` in the following format:
 
 	api_key: 0/111111
 	workspace_id: 1111111
@@ -49,11 +49,11 @@ Then create a file at `~/asana-google-calendar/config/config.yaml` in the follow
 
 Then get your Google Calendar credentials. Go [here](https://developers.google.com/calendar/quickstart/ruby),
 click "ENABLE THE GOOGLE CALENDAR API", and save the file `credentials.json` to
-`~/asana-google-calendar/config/calendar_credentials.json` (note the rename to`calendar_credentials`) 
+`~/c/asana-google-calendar/config/calendar_credentials.json` (note the rename to`calendar_credentials`) 
 
 Then, make an alias in your `.bash_profile` to call the script in this repo. I have something like this in my `.bash_profile`:
 
-	alias todo="~/asana-google-calendar/main.rb"
+	alias todo="~/c/asana-google-calendar/main.rb"
 
 # Usage
 
